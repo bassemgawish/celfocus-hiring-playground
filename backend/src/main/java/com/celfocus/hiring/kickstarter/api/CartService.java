@@ -11,20 +11,23 @@ import com.celfocus.hiring.kickstarter.domain.Cart;
 import com.celfocus.hiring.kickstarter.domain.CartItem;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
-@Transactional
 public class CartService {
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
     private final ProductRepository productRepository;
+    private final ProductService productService;
 
     @Autowired
-    public CartService(CartRepository cartRepository, CartItemRepository cartItemRepository, ProductRepository productRepository) {
+    public CartService(CartRepository cartRepository, CartItemRepository cartItemRepository,
+                       ProductRepository productRepository, ProductService productService) {
         this.cartRepository = cartRepository;
         this.cartItemRepository = cartItemRepository;
         this.productRepository = productRepository;
+        this.productService = productService;
     }
 
     public void addItemToCart(String username, CartItemInput itemInput) {
@@ -41,8 +44,7 @@ public class CartService {
     }
 
     private void addNewItemToCart(CartItemInput itemInput, CartEntity cart) {
-        var product = productRepository.findBySku(itemInput.itemId())
-                .orElseThrow(() -> new RuntimeException("Cart Item not found"));
+        var product = productService.reserve(itemInput.itemId(), 1);
         var cartItem = new CartItemEntity();
         cartItem.setQuantity(1);
         cartItem.setItemId(itemInput.itemId());
@@ -53,6 +55,7 @@ public class CartService {
     }
 
     private void updateItemQuantity(CartItemEntity item, int byCount) {
+        productService.reserve(item.getItemId(), byCount);
         setItemQuantity(item, item.getQuantity() + byCount);
     }
 
@@ -62,6 +65,13 @@ public class CartService {
     }
 
     public void clearCart(String username) {
+        cartRepository.findByUserId(username).ifPresent(cart -> {
+            List<CartItemEntity> cartItems = cart.getItems();
+            cartItems.forEach(cartItem -> {
+                productService.release(cartItem.getItemId(), cartItem.getQuantity());
+            });
+
+        });
         cartRepository.deleteByUserId(username);
     }
 
@@ -73,7 +83,11 @@ public class CartService {
 
     public void removeItemFromCart(String username, String itemId) {
         cartRepository.findByUserId(username)
-                .ifPresent(cart -> cartItemRepository.deleteById(new CartItemPK(itemId, cart.getId())));
+                .ifPresent(cart -> {
+                    productService.release(itemId, cart.getItems().stream()
+                            .filter(i -> i.getItemId().equals(itemId)).findFirst().get().getQuantity());
+                    cartItemRepository.deleteById(new CartItemPK(itemId, cart.getId()));
+                });
     }
 
     private Cart<? extends CartItem> mapToCart(CartEntity cartEntity) {
