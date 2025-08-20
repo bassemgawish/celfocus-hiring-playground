@@ -43,7 +43,7 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                         SecurityContextHolder.getContext().setAuthentication(authToken);
                     }
                 }
-            } catch (JwtException ignored) {
+            } catch (JwtException ex) {
                 logger.error("unauthenticated user ");
             }
         }
